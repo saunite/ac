@@ -43,7 +43,7 @@
 # * install Expect
 # * install Term::ReadKey
 # * install Getopt::Std
-# * install Crypt::EBC
+# * install Crypt::ECB
 # * install Crypt::Blowfish
 # * install IO::Stty
 # * 
