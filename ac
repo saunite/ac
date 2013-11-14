@@ -1,0 +1,1137 @@
+#!/usr/bin/perl
+
+my $details = 'Created by Andre Saunite (saunite [at] gmail.com): Free!';
+
+#/*
+# * ----------------------------------------------------------------------------
+# * "THE BEER-WARE LICENSE" (Revision 42):
+# * <saunite@gmail.com> wrote this file. As long as you retain this notice you
+# * can do whatever you want with this stuff. If we meet some day, and you think
+# * this stuff is worth it, you can buy a beer in return to André Saunite
+# * (Thanks to Poul-Henning Kamp <phk@FreeBSD.ORG> for this amazing license)
+# * ----------------------------------------------------------------------------
+# *
+# * ac -> Auto Connector (or André's Connector) :P
+# *
+# * This is a Terminal connection manager (no GUI), intended to be used with 
+# * your favorite Terminal application (Konsole, Gnome-Terminal, yakuake, and 
+# * so on) or to be used in machines with no GUI available.
+# *
+# * Creation date: 2012/09/06
+# * Last change: 2012/10/03
+# *
+# */
+
+use warnings;
+use strict;
+use Expect;
+use POSIX 'strftime';
+use Crypt::ECB;
+use Term::ReadKey;
+use Getopt::Std;
+
+# Change those to change your configuration location
+my $configDir = $ENV{"HOME"} . "/.ac" ; # Configuration directory
+my $connections = $configDir . "/" . "connections"; # Connections file
+my $groupFile = $configDir . "/" . "groups"; # Group File
+
+# Global Variable declaration
+my $conn_name;
+my $ip;
+my $port;
+my $user;
+my $passwd = "-";
+my $sshoptions = "-X -C -o PreferredAuthentications=password,keyboard-interactive";
+my $type;
+my $comment;
+my $commands_after_connection;
+
+my $telnet_options = "";
+my $sftp_options = "";
+my $ftp_options = "";
+my $ssh_key = "";
+my $timeout = 30;
+my $command_prompt = '[#%\$>]|\:\/\s*$|TERM\ \=\ \([a-z]*\)';
+my $passwd_prompt = '([p|P]ass|[p|P]ass[w|W]or[d|t]|[c|C]ontrase.a|Enter passphrase for key )\s*:\s*$';
+my $user_prompt = '([l|L]ogin|[u|U]suario|[u|U]ser-?[n|N]ame|[u|U]ser)\s*:\s*$|[n|N]ame\s*(.*:.*):\s*';
+my $conn_tmout = 'Connection timed out';
+my $ssh_auth = 'Are you sure you want to continue connecting (yes/no)?\s*';
+my $ct = new Expect;
+
+my $version = "2013-11-14";
+
+my %opt = ();
+
+$Getopt::Std::STANDARD_HELP_VERSION = 1;
+
+sub HELP_MESSAGE {
+	printUsage("die");
+}
+
+sub VERSION_MESSAGE {
+	print "ac version ${version}\n\n";
+}
+
+sub getConnTypes {
+	my %available_conn_types = (
+		ssh => 1,
+		telnet => 1,
+		sftp => 1,
+		ftp => 1,
+		);
+	return %available_conn_types;
+}
+
+my %available_conn_types = getConnTypes();
+
+my %options = (
+	add => 1,
+	del => 1,
+	list => 1,
+	print => 1,
+	);
+
+my %default_ports = (
+	ssh => 22,
+	sftp => 22,
+	telnet => 23,
+	ftp => 21,
+);
+
+my %reservedWords = (
+	all => 1,
+);
+
+my @connectionColumns = ("NAME", "IP / HOSTNAME", "PORT", "USER", "PWD", "TYPE", "COMMENT", "SSH_OPTIONS");
+my %configuredConnections = ();
+my %configuredGroups = ();
+
+# Configurable Options in preferences file, the below are the defaults in case no 
+#  option is specified in the configuration files
+my %preferences = ();
+$preferences{scapeCharSeq} = "__RUN__LIKE__HELL__";
+$preferences{generateLog} = "yes";
+$preferences{logDir} = "${configDir}/logs/";
+$preferences{accept_ssh_auth} = "yes";
+
+my $enkey = $details;
+if ( length $enkey >= 57 ) {
+	die "Cannot have a key larger then 56 chars\n";
+}
+my $cifra = Crypt::ECB->new($enkey, 'Blowfish' );
+$cifra->padding(PADDING_AUTO);
+
+if ( ! -e $configDir ) {
+    print "Config directory doesn't exist, creating in $configDir \n";
+    mkdir "$configDir" or die "ABORTING: Cannot create directory $configDir !!!\n";
+}
+
+sub inception {
+	my $conn_command;
+	my @all_conn = @_;
+	($ip, $port, $user, $passwd, $type, $comment, $sshoptions, $commands_after_connection) = split (/ /, $configuredConnections{$all_conn[0]});
+
+	$sshoptions =~ s/_SpAcE_/ /g if defined $sshoptions;
+	$sshoptions =~ s/_ViRgUlA_/,/g if defined $sshoptions;
+	$commands_after_connection =~ s/_SpAcE_/ /g if defined $commands_after_connection;
+	$commands_after_connection =~ s/_ViRgUlA_/,/g if defined $commands_after_connection;
+
+	my @all_commands_after_conn = ();
+	if ( $commands_after_connection ) {
+		@all_commands_after_conn = split (/;/, $commands_after_connection);
+	}
+
+	if ( @all_conn ) { 
+		shift (@all_conn);
+	}
+
+	my $sshoptions = "-o PreferredAuthentications=password,keyboard-interactive";
+	$cifra->start('decrypt_hex') || die $cifra->errstring;
+	$passwd = $cifra->decrypt_hex($passwd);
+
+	if ( $type eq 'ssh' ) {
+		$conn_command = "$type -p $port $sshoptions -l $user $ip"; 
+	} elsif ( $type eq 'telnet' ) {
+		$conn_command = "$type $telnet_options -l $user $ip $port"; 
+	} elsif ( $type eq 'sftp' ) {
+		$conn_command = "$type $sftp_options -P $port $user\@$ip"; 
+	} elsif ( $type eq 'ftp' ) {
+		$conn_command = "$type $ftp_options $ip $port"; 
+	}
+
+	$ct -> send ( "$conn_command\n" );
+
+	$ct -> expect ( $timeout, 
+		[ $ssh_auth, sub {
+			$ct -> send ( "$preferences{accept_ssh_auth}\n" );
+			exp_continue;
+		} ],
+		[ $user_prompt, sub {
+			$ct -> send ( "$user\n" );
+			exp_continue;
+		} ],
+		[ $passwd_prompt, sub {
+			$ct -> send ( "$passwd\n" );
+			exp_continue;
+		} ],
+		[ $command_prompt, sub {
+			if ( @all_conn ) {
+				inception (@all_conn);
+			} else { 
+				if ( @all_commands_after_conn ) {
+					foreach (@all_commands_after_conn) {
+						$ct -> send ( "$_\n" );
+					}
+				}
+				$ct->interact( \*STDIN, $preferences{scapeCharSeq} );
+				$ct->soft_close();
+			}
+		} ],
+		[ timeout => sub { 
+			die "Connection timeout out!\n";
+		} ],
+	);
+}
+
+sub doConnect {
+	my $time = strftime('%d-%m-%Y_%H:%M:%S', localtime);
+
+	my @all_conn = @_;
+
+	if ( @all_conn > 1 ) { shift (@all_conn); }
+
+	($ip, $port, $user, $passwd, $type, $comment, $sshoptions, $commands_after_connection) = split (/ /, $configuredConnections{$all_conn[0]});
+
+	$sshoptions =~ s/_SpAcE_/ /g if defined $sshoptions;
+	$sshoptions =~ s/_ViRgUlA_/,/g if defined $sshoptions;
+	$commands_after_connection =~ s/_SpAcE_/ /g if defined $commands_after_connection;
+	$commands_after_connection =~ s/_ViRgUlA_/,/g if defined $commands_after_connection;
+
+	my @all_commands_after_conn = ();
+	if ( $commands_after_connection ) {
+		@all_commands_after_conn = split (/;/, $commands_after_connection);
+	}
+	
+	shift (@all_conn);
+
+	my $disconnect = "false";
+	if ( ( $all_conn[0] ) && ( ! $configuredConnections{$all_conn[0]} )) {
+		@all_commands_after_conn = @all_conn;
+		@all_conn = ();
+		$disconnect = "true";
+	}
+
+	if ( ! -e $passwd ) { 
+		$cifra->start('decrypt_hex') || die $cifra->errstring;
+		$passwd = $cifra->decrypt_hex($passwd);
+	} else {
+		$sshoptions="$sshoptions -i $passwd";
+	}
+
+	my $conn_command; 
+	if ( $type eq 'ssh' ) {
+		if ( $disconnect eq "true" ) {
+			$conn_command = "$type -p $port $sshoptions -l $user $ip \"@all_commands_after_conn\""; 
+			@all_commands_after_conn = ();
+		} else {
+			$conn_command = "$type -p $port $sshoptions -l $user $ip"; 
+		}
+	} elsif ( $type eq 'telnet' ) {
+		$conn_command = "$type $telnet_options -l $user $ip $port"; 
+	} elsif ( $type eq 'sftp' ) {
+		$conn_command = "$type $sftp_options -P $port $user\@$ip"; 
+	} elsif ( $type eq 'ftp' ) {
+		$conn_command = "$type $ftp_options $ip $port"; 
+	}
+
+	$ct->slave->clone_winsize_from(\*STDIN);
+	$ct->spawn($conn_command) or die "Cannot spawn $conn_command: $!\n";
+	my $pid = $$;
+
+	if ( $preferences{generateLog} eq "yes" ) {
+		if ( ! -e $preferences{logDir} ) {
+		    print "Log directory doesn't exist, creating in $preferences{logDir} \n";
+		    mkdir "$preferences{logDir}" or die "ABORTING: Cannot create log directory $preferences{logDir} !!!\n";
+		}
+		my $logFile = "$preferences{logDir}/${_[0]}_${type}_${time}_${pid}.log";
+		if ( -e $logFile ) { 
+			print "File $logFile already exists, appending new log to it\n";
+		}
+		$ct->log_file($logFile);
+	}
+
+	$ct -> expect ( $timeout, 
+		[ $ssh_auth, sub {
+			$ct -> send ( "$preferences{accept_ssh_auth}\n" );
+			exp_continue;
+		} ],
+		[ $user_prompt, sub {
+			$ct -> send ( "$user\n" );
+			exp_continue;
+		} ],
+		[ $passwd_prompt, sub {
+			$ct -> send ( "$passwd\n" );
+			exp_continue;
+		} ],
+		[ $command_prompt, sub {
+			if ( $disconnect eq "false" ) {
+				if ( @all_conn ) {
+					inception (@all_conn);
+				} else { 
+					if ( @all_commands_after_conn ) {
+						foreach (@all_commands_after_conn) {
+							$ct -> send ( "$_\n" );
+						}
+					}
+					$ct->interact( \*STDIN, $preferences{scapeCharSeq} );
+					$ct->soft_close();
+				}
+			} else { $ct->soft_close();}  
+		} ],
+		[ timeout => sub { 
+			die "Connection timeout out!\n";
+		} ],
+	);
+
+$ct->close();
+
+}
+
+sub loadGroupFile {
+	my $group;
+	if ( -e $groupFile ) {
+		open (GROUPS, "$groupFile") || die "ABORTING: Cannot open connection file $groupFile !!!\n";
+		while (<GROUPS>) {
+			chomp;
+			my @f = split /,/;
+			$group = shift (@f);
+			$configuredGroups{$group}="@f";
+		}
+		close (GROUPS);
+	}
+}
+
+sub loadConnectionFile {
+	my $host;
+	my $connectionFile = $configDir . "/" . "connections"; 
+	if ( -e $connectionFile ) {
+		open (CONNECTIONS, "$connectionFile") || die "ABORTING: Cannot open connection file $connectionFile !!!\n";
+		while (<CONNECTIONS>) {
+			chomp;
+			my @f = split /,/;
+			$host = shift (@f);
+			$configuredConnections{$host}="@f";
+		}
+		close (CONNECTIONS);
+	}
+}
+
+sub createPreferencesFile {
+	my $preferencesFile = $configDir . "/" . "preferences";
+	my $key;
+	open (PREFERENCES, ">$preferencesFile") || die "ABORTING: Cannot open preferences file $preferencesFile !!!\n";
+	foreach $key (sort keys %preferences) {
+		print PREFERENCES "$key = $preferences{$key}\n";
+	}
+	print "Preferences File $preferencesFile created!\n";
+}
+
+sub loadPreferencesFile {
+	my $preferencesFile = $configDir . "/" . "preferences";
+	if ( ! -e $preferencesFile ) {
+		print "Preferences file $preferencesFile not found, trying to create one\n";
+		createPreferencesFile();
+	} else {
+		open (PREFERENCES, "$preferencesFile") || die "ABORTING: Cannot open preferences file $preferencesFile !!!\n";
+		my $name;
+		my $value;
+		while (<PREFERENCES>) {
+			chomp;
+			s/^\s*//g;
+			s/\s*$//g;
+			s/=\s*/=/g;
+			s/\s*=/=/g;
+			if ( ( $_ !~ /^#/ ) && ( $_ ne "" ) ) {
+				my @f = split /=/;
+				$f[1] =~ s/"//g;
+				if ( exists $preferences{$f[0]} ) {
+					$preferences{$f[0]}=$f[1];
+				}
+			}
+		}
+		close (PREFERENCES);
+	}
+}
+
+sub printPreferences {
+	my $preferencesFile = $configDir . "/" . "preferences";
+	print "Preferences file: $preferencesFile\n\n";
+	print "Defined parameters:\n";
+	my $key;
+	foreach $key (sort keys %preferences ) {
+		print "$key: $preferences{$key}\n";
+	}
+}
+
+sub printGroups {
+	loadGroupFile();
+	print "GROUP_NAME\tCONNECTIONS_IN_GROUP\n";
+	foreach (sort keys %configuredGroups ) {
+		print "$_\t\t$configuredGroups{$_}\n";
+	}
+}
+
+sub printConnections {
+	print "$connectionColumns[0]\t\t$connectionColumns[1]\t$connectionColumns[3]";
+	print "\t\t$connectionColumns[5]\t$connectionColumns[6]\n";
+	foreach (sort keys %configuredConnections ) {
+		my @f = split (/ /, $configuredConnections{$_});
+		unshift (@f, $_);
+		if ( -e $f[4] ) { 
+			$f[4] = basename($f[4]);
+		} else { 
+			$f[4] = "*****";
+		}
+		($conn_name, $ip, $port, $user, $passwd, $type, $comment, $sshoptions) = @f;
+		if ( ! $comment ) {
+			$comment = "";
+		}
+		if ( ! $sshoptions ) {
+			$sshoptions = " ";
+		}
+		$comment =~ s/_SpAcE_/ /g;
+		$comment =~ s/_ViRgUlA_/,/g;
+		$sshoptions =~ s/_SpAcE_/ /g;
+		$sshoptions =~ s/_ViRgUlA_/,/g;
+		my $spaceConn;
+		my $spaceUser;
+		my $spaceIP;
+		my $spaceComment;
+		if ( length($conn_name) <= 7 ) {
+			$spaceConn = "\t\t";
+		} else { 
+			$spaceConn = "\t";
+		}
+		if ( length($user) <= 7 ) {
+			$spaceUser = "\t\t";
+		} else { 
+			$spaceUser = "\t";
+		}
+		if ( length($ip) <= 7 ) {
+			$spaceIP = "\t\t";
+		} else { 
+			$spaceIP = "\t";
+		}
+		if ( length($ip) >= 16 ) {
+			$ip = substr ($ip,0,11);
+			$ip = $ip . "(..)";
+		}
+		if ( $comment eq " " ) {
+			print "$conn_name$spaceConn$ip$spaceIP$user$spaceUser$type\t$comment\n";
+		} else {
+			print "$conn_name$spaceConn$ip$spaceIP$user$spaceUser$type\t\'$comment\'\n";
+		}
+	}
+}
+
+sub modifyConnection {
+	my %available_conn_types = getConnTypes();
+
+	my $action = $_[9]; 
+
+	my $mc_name = $_[0];
+	my $name_to_change = $_[1];
+	my $mc_ip = $_[2];
+	my $mc_port = $_[3];
+	my $mc_user = $_[4];
+	my $mc_pwd = $_[5];
+	my $mc_type = $_[6];
+	my $mc_comment = $_[7]; 
+	my $unchangestring = $_[8];
+	my $mc_sshoptions = $_[10];
+	my $mc_commands_after_conn = $_[11];
+
+	if ( ( $action eq "clone") && ( $name_to_change eq $unchangestring ) ) { 
+		die "Need a name for the duplicated connection\n";
+	}
+
+	if ( ! $configuredConnections{$mc_name} ) { 
+		die "Connection \'$mc_name\' doesn't exist!\n";
+	} 
+	if ( ( $name_to_change eq $unchangestring) && ( $mc_type eq $unchangestring) && ( $mc_port eq $unchangestring ) && ( $mc_ip eq $unchangestring ) && ( $mc_user eq $unchangestring ) && ( $mc_pwd eq $unchangestring ) && ( $mc_comment eq $unchangestring ) && ( $mc_sshoptions eq $unchangestring ) && ( $mc_commands_after_conn eq $unchangestring ) ) {
+		die "Modify option requires you to change at least one parameter!\n";
+	}
+
+	my @conn_to_change = split / /, "$configuredConnections{$mc_name}";
+
+	if ( $mc_ip eq $unchangestring ) { $mc_ip = $conn_to_change[0]; }
+	if ( $mc_port eq $unchangestring ) { $mc_port = $conn_to_change[1]; }
+	if ( $mc_user eq $unchangestring ) { $mc_user = $conn_to_change[2]; }
+	if ( $mc_type eq $unchangestring ) { $mc_type = $conn_to_change[4]; }
+	if ( $mc_comment eq $unchangestring ) { $mc_comment = $conn_to_change[5]; }
+	if ( $mc_sshoptions eq $unchangestring ) { $mc_sshoptions = $conn_to_change[6]; }
+	if ( $mc_commands_after_conn eq $unchangestring ) { $mc_commands_after_conn = $conn_to_change[7]; }
+	if ( $mc_pwd eq $unchangestring ) { 
+		if ( ! -e $conn_to_change[3] ) {
+			$cifra->start('decrypt_hex') || die $cifra->errstring;
+			$mc_pwd = $cifra->decrypt_hex($conn_to_change[3]);
+		} else {
+			$mc_pwd = $conn_to_change[3];
+		}
+	}
+
+	if ( $action eq "modify" ) {
+		delConnection( $mc_name, "notext", "force");
+	}
+
+	if ( $name_to_change ne $unchangestring ) { $mc_name = $name_to_change };
+
+	$mc_comment =~ s/_SpAcE_/ /g;
+	$mc_comment =~ s/_ViRgUlA_/,/g;
+	$mc_sshoptions =~ s/_SpAcE_/ /g;
+	$mc_sshoptions =~ s/_ViRgUlA_/,/g;
+	if ( $mc_commands_after_conn ) {
+		$mc_commands_after_conn =~ s/_SpAcE_/ /g;
+		$mc_commands_after_conn =~ s/_ViRgUlA_/,/g;
+	} else { 
+		$mc_commands_after_conn = " ";
+	}
+
+	addConnection( $mc_name, $mc_ip, $mc_port, $mc_user, $mc_pwd, $mc_type, $mc_comment, "dontprintmsg", $mc_sshoptions, $mc_commands_after_conn );
+
+	if ( $action eq "modify" ) {
+		print "Successfully Modified connection: $mc_name\n";
+	} elsif ( $action eq "clone" ) {
+		print "Successfully Duplicated connection: $mc_name\n";
+	}
+
+}
+
+sub show {
+	my $wanted_conn = $_[0];
+	my $showpwd = $_[1];
+	if ( $configuredConnections{$wanted_conn} ) {
+		foreach (sort keys %configuredConnections ) {
+			my @f = (split / /, $configuredConnections{$_});
+			unshift (@f,$_);
+			($conn_name, $ip, $port, $user, $passwd, $type, $comment, $sshoptions, $commands_after_connection) = @f;
+			if ( $conn_name eq $wanted_conn ) {
+				if ( ! $comment ) {
+					$comment = "";
+				}
+				if ( ! $sshoptions ) {
+					$sshoptions = "";
+				}
+				$comment =~ s/_SpAcE_/ /g;
+				$comment =~ s/_ViRgUlA_/,/g;
+				$sshoptions =~ s/_SpAcE_/ /g;
+				$sshoptions =~ s/_ViRgUlA_/,/g;
+				if ( $commands_after_connection ) {
+					$commands_after_connection =~ s/_SpAcE_/ /g;
+					$commands_after_connection =~ s/_ViRgUlA_/,/g;
+				} else { 
+					$commands_after_connection = " ";
+				}
+				if ( ! -e $passwd ) { 
+					if ( $showpwd eq "showpwd" ) { 
+						$cifra->start('decrypt_hex') || die $cifra->errstring;
+						$passwd = $cifra->decrypt_hex($passwd);
+					} else {
+						$passwd = "*****";
+					}
+				}
+			print "Connection Name:\t$conn_name\n";
+			print "IP Address:\t\t$ip\n";
+			print "Port Number:\t\t$port\n";
+			print "User Name:\t\t$user\n";
+			print "Passwd:\t\t\t$passwd\n";
+			print "Connection Type:\t$type\n";
+			print "Comment:\t\t'$comment'\n";
+			print "SSH OPTIONS:\t\t'$sshoptions'\n";
+			print "After Connection:\t$commands_after_connection\n";
+			}
+		}
+	} elsif ( $configuredGroups{$wanted_conn} ) {
+		print "$wanted_conn: $configuredGroups{$wanted_conn}\n\n";
+		my @f = (split / /, $configuredGroups{$wanted_conn});
+		foreach ( @f ) {
+			print "$_\n";
+			show ( $_, $showpwd );
+			print "\n";
+		}
+	}
+}
+
+sub addConnection {
+	my %available_conn_types = getConnTypes();
+
+	my $ac_name = $_[0];
+	my $ac_ip = $_[1];
+	my $ac_port = $_[2];
+	my $ac_user = $_[3];
+	my $ac_pwd = $_[4];
+	my $ac_type = $_[5];
+	my $ac_comment;
+	my $ac_sshoptions;
+	my $ac_commands_after_conn;
+
+	if ( length($ac_name) >= 16 ) {
+		die "Connection name cannot have more than 16 characters!\n";
+	}
+
+	if ( $_[6] ) {
+		$ac_comment = $_[6]; 
+	} else {
+		$ac_comment = " ";
+	}
+
+	if ( $_[8] ) {
+		if ( $ac_type ne 'ssh' ) {
+			$ac_sshoptions = " ";
+		} else {
+			$ac_sshoptions = $_[8]; 
+		}
+	} else { 
+		$ac_sshoptions = " "; 
+	} 
+	if ( -e $ac_pwd ) {
+		$ac_sshoptions =~ s/-o PreferredAuthentications=password/ /g;
+	}
+
+	if ( $_[9] ) {
+		$ac_commands_after_conn = $_[9];
+	} else {
+		$ac_commands_after_conn = "";
+	}
+
+	if ( $configuredConnections{$ac_name} ) { 
+		die "Connection \'$ac_name\' already exists!\n";
+	} 
+
+	if ( $reservedWords{$ac_name} ) {
+		die "The word \'$ac_name\' is reserved, cannot create connection with this name!\n";
+	}
+
+	my $opened = 0 ;
+	if ( ! -e $connections ) {
+		print "Connection file doesn't exist, I will create it.\n";
+		open (CONNECTIONS, ">$connections") || die "ABORTING: Cannot create config file $connections !!!\n";
+		$opened = 1 ;
+	} else {
+		if ( ! $opened ) {
+			open (CONNECTIONS, ">>$connections") || die "ABORTING: Cannot open config file $connections !!!\n";
+		}
+	}
+	my $numberelements = scalar @_;
+	if ( $numberelements <= 5 ) {
+		print STDERR "Missing arguments!\n";
+		printUsage("die");
+	} elsif ( ! $available_conn_types{$ac_type} ) {
+		my @avail_conn = get_avail_conn();
+		die "Connection '$ac_type' not supported. Possible types are '@avail_conn'\n";
+	} else {
+		if ( $ac_pwd eq "-" ) {
+			print 'Password: ';
+			ReadMode('noecho');
+			chomp($ac_pwd = <STDIN>);
+			ReadMode('restore');
+			print "\n";
+		}
+		if ( ! -e $ac_pwd ) { 
+			$cifra->start('encrypt_hex') || die $cifra->errstring;
+			$ac_pwd = $cifra->encrypt_hex($ac_pwd);
+		}
+		$ac_comment =~ s/ /_SpAcE_/g if defined $ac_comment;
+		$ac_comment =~ s/,/_ViRgUlA_/g if defined $ac_comment;
+		$ac_sshoptions =~ s/ /_SpAcE_/g if defined $ac_sshoptions;
+		$ac_sshoptions =~ s/,/_ViRgUlA_/g if defined $ac_sshoptions;
+		$ac_commands_after_conn =~ s/ /_SpAcE_/g if defined $ac_commands_after_conn;
+		$ac_commands_after_conn =~ s/,/_ViRgUlA_/g if defined $ac_commands_after_conn;
+		print CONNECTIONS "$ac_name,$ac_ip,$ac_port,$ac_user,$ac_pwd,$ac_type,$ac_comment,$ac_sshoptions,$ac_commands_after_conn\n";
+		if ( ( $ac_pwd =~ m/\n/ ) || ( ! -e $ac_pwd ) ) { 
+			$ac_pwd = "*****";
+		} else {
+			$ac_pwd = "key: " . basename($ac_pwd);
+		}
+		$ac_comment =~ s/_SpAcE_/ /g if defined $ac_comment;
+		$ac_comment =~ s/_ViRgUlA_/,/g if defined $ac_comment;
+		$ac_sshoptions =~ s/_SpAcE_/ /g if defined $ac_sshoptions;
+		$ac_sshoptions =~ s/_ViRgUlA_/,/g if defined $ac_sshoptions;
+		$ac_commands_after_conn =~ s/_SpAcE_/ /g if defined $ac_commands_after_conn;
+		$ac_commands_after_conn =~ s/_ViRgUlA_/,/g if defined $ac_commands_after_conn;
+		print "Adding: $ac_name,$ac_ip,$ac_port,$ac_user,$ac_pwd,$ac_type,$ac_comment,$ac_sshoptions,$ac_commands_after_conn\n" if $_[7] eq "printmsg";
+	}
+	close (CONNECTIONS);
+}
+
+sub addGroup {
+	my @conn = @_;
+	my $group = $conn[0];
+	shift (@conn);
+	if ( @conn <= 1 ) {
+		die "Group needs at least two connections\n";
+	}
+	foreach ( @conn ) {
+		if ( ! $configuredConnections{$_} ) { 
+			die "Cannot create group $group! Connection \'$_\' doesn't exist!\n";
+		} 
+	}
+	if ( length($group) >= 16 ) {
+		die "Connection name cannot have more than 16 characters!\n";
+	}
+	my $opened = 0 ;
+	if ( ! -e $groupFile ) {
+		print "Groups file doesn't exist, I will create it.\n";
+		open (GROUPS, ">$groupFile") || die "ABORTING: Cannot create config file $groupFile !!!\n";
+		$opened = 1 ;
+	} else {
+		if ( ! $opened ) {
+			open (GROUPS, ">>$groupFile") || die "ABORTING: Cannot open config file $groupFile !!!\n";
+		}
+	}
+
+	my @passwd = ();
+
+	my $counter = 0;
+	foreach ( @conn ) {
+		if ( $counter != 0 ) {
+			@passwd = split (/ /, $configuredConnections{$_});
+			if ( -e $passwd[3] ) {
+				die "Cannot use group connection with a connection using a ssh key!\n";
+			}
+		}
+		$counter++;
+	}
+
+	print GROUPS "$group," . join (',', @conn) . "\n";
+	print "Adding Group: $group," . join (',', @conn) . "\n";
+
+	close (GROUPS);
+	
+}
+
+sub delConnection {
+	my $conn_name = $_[0];
+	my $message = $_[1];
+	my $force;
+	if ( $_[2] ) {
+		$force = $_[2];
+	} else { 
+		$force = "dontforce";
+	}
+	my $belong_to_group = "no";
+	if ( $configuredConnections{$conn_name} ) {
+		loadGroupFile();
+		if ( $force ne "force" ) {
+			foreach (sort keys %configuredGroups) {
+				if ( $configuredGroups{$_} =~ m/$conn_name/ ) {
+					die "Connection belongs to group $_, cannot delete\n";
+				}
+			}
+		}
+		if ( ! -e $connections ) {
+			die "Connection file doesn't exist, unable to delete anything\n";
+		} else {
+			loadConnectionFile();
+			open (CONNECTIONS, ">$connections") || die "ABORTING: Cannot open config file $connections !!!\n";
+			my @del = split ' ', "$configuredConnections{$conn_name}";
+			delete $configuredConnections{$conn_name};
+			my $key;
+			foreach $key (sort keys %configuredConnections ) {
+				($ip, $port, $user, $passwd, $type, $comment, $sshoptions, $commands_after_connection) = split (/ /, $configuredConnections{$key});
+				if ( ! $sshoptions ) {
+					$sshoptions = "";
+				}
+				if ( ! $comment ) {
+					$comment = "";
+				}
+				if ( ! $commands_after_connection ) {
+					$commands_after_connection = "";
+				}
+				print CONNECTIONS "$key,$ip,$port,$user,$passwd,$type,$comment,$sshoptions,$commands_after_connection\n";
+			}
+			close (CONNECTIONS);
+			print "Connection $conn_name deleted (to $del[0]:$del[1] as $del[2]).\n" if $message ne "notext";
+		}
+	} elsif ( $configuredGroups{$conn_name} ) {
+		if ( -e $groupFile ) {
+			loadGroupFile();
+			open (GROUPS, ">$groupFile") || die "ABORTING: Cannot open connection file $groupFile !!!\n";
+			my $deleted = $configuredGroups{$conn_name};
+			delete $configuredGroups{$conn_name};
+			my $key;
+			foreach $key (sort keys %configuredGroups ) {
+				print GROUPS "$key," . join (',', $configuredGroups{$key}) . "\n";
+			}
+			print "Group $conn_name deleted (to $deleted).\n" if $message ne "notext";
+			close (GROUPS);
+		}
+	}
+}
+
+sub get_avail_conn {
+  my @avail_conn = ();
+  foreach (sort keys %available_conn_types) {
+  	push (@avail_conn, "$_" );
+  }
+  return @avail_conn;
+}
+
+sub basename {
+	my $file = shift;
+	$file =~ s!^(?:.*/)?(.+?)(?:\.[^.]*)?$!$1!;
+	return $file;
+}
+
+sub printUsage {
+  my @avail_conn = get_avail_conn();
+  my $filename = basename($0);
+	my $usage="Usage: 
+$filename [-a|-d|-x|-l|-h|-m|-s] [-n name|-i ip|-P port|-u user|-p password|
+    -k ssh key_identity_file|-c comment|-t type|-o ssh_options|
+    -E commands_after_connection] [name] 
+
+ To connect to a saved connection
+  $filename <name> [<name_01>...<name_N>|<command>]	
+    name [<name_01>...<name_N]  Where 'name' and 'name_XX' are the names of 
+                                saved connections (If you specify more than a 
+                                name, it will connect to one node, then from 
+                                that node connect to the other, and so on, 
+                                until the end of the list)
+    <command>                   In case the next argument is not a connection
+                                the script will assume it is a command, then it
+                                will connect, send the command, and disconnect.
+
+ To add / save a connection:
+  $filename -a -n <name> -i <ip_address> -u <user> -t <type> 
+    [-P <port_number>|-p <password>|-k <ssh_key_id_file>|-c <comment>]
+
+   -n <name>         Name of the connection to be created
+   -i <ip_address>   IP address or hostname of the node
+   -t <type>         Connection type, supported ones are 
+                     '@avail_conn'
+   -u <user>         User on the remote host
+   -P <port_number>  Port number to connect to (if omitted then the 
+                     default one for the type will be used)
+   -p <password>     Password for the user, if omitted or entered a 
+                     dash (-) then will be prompted (This option 
+                     is not supported if using -k)
+   -k <key_id_file> SSH Key Id file, this option is not supported together
+                     with -p
+   -c <comment>      Comment for the connection (optional)
+   -E <commands>     The commands to send to the node right after the 
+                     connection is established (if more then one command,
+                     then they should be separated by semicolon ';')
+
+ To delete a saved connection
+  $filename -x <name> Name of the connection or group to be deleted
+                     (In case the connection belong to a group, it cannot 
+                     be deleted)
+
+ To modify a saved connection
+  $filename -m <name> [-n <new name>] [-i <ip_address>] [-u <user>] [-t <type>]
+   [-P <port_number>] [-p <password>] [-k <ssh_key_id_file>] [-c <comment>]
+
+   -m <name>          Name of the connection to be changed
+   -n <name>          New name of the connection
+   -i <ip_address>    New IP address or hostname of the node
+   -t <type>          New connection type, supported ones are
+                      '@avail_conn'
+   -u <user>          New user on the remote host
+   -P <port_number>   New port number to connect to
+   -p <password>      New password for the user, if entered a dash (-) then 
+                      will be prompted (his option is not supported with -k)
+   -k <key_id_file>   New ssh key identification file, not supported together 
+                      with -p
+   -c <comment>       New comment for the connection (optional)
+                      (All parameters are optional while modifying, but at 
+                      least one should be specified)
+   -E <commands>      New commands to send to the node right after the 
+                      connection is established (if more then one command,
+                     then they should be separated by semicolon ';')
+
+ To duplicate / clone a saved connection
+  $filename -d <name> -n <new name> [-i <ip_address>] [-u <user>] [-t <type>] 
+   [-P <port_number>] [-p <password>] [-k <ssh_key_id_file>] [-c <comment>]
+
+   -d <name>          Name of the saved connection 
+   -n <new_name>      Name of the new connection
+   -i <ip_address>    New IP address or hostname of the node
+   -t <type>          New connection type, supported ones are 
+                      '@avail_conn'
+   -u <user>          New user on the remote host
+   -P <port_number>   New port number to connect to
+   -p <password>      New password for the user, if entered a dash (-) then 
+                      will be prompted (this option is not supported with -k)
+   -k <key_id_file>	  New ssh key identification file, not supported together 
+                      with -p
+   -c <comment>		  New comment for the connection (optional)
+   -E <commands>      New commands to send to the node right after the 
+                      connection is established (if more then one command,
+                     then they should be separated by semicolon ';')
+         (All parameters are optional while duplicating, except <new_name>)
+
+ To print saved connections or preferences
+   -lc			Print connections
+   -lg			Print groups
+   -lp			Print preferences
+
+ To show details from a saved connection
+  $filename -s <name> [-e]  Where 'name' is the name of a saved connection
+                       (if -e is used, the password will be show)
+
+ Print usage
+   -h	 		Show this help and exit\n";
+
+	if ($_[0] eq "die") { die "$usage\n"; }
+	if ($_[0] eq "print") { print "$usage\n"; }
+}
+
+################# MAIN #####################
+
+loadConnectionFile();
+loadPreferencesFile();
+loadGroupFile();
+my $filename = basename($0);
+
+getopts ('ad:hl:n:i:P:u:p:t:c:o:m:k:s:ex:g:o:E:', \%opt) or die "Option not recognized! Please Run $filename -h for more information and usage details\n";
+
+#sub HELP_MESSAGE    { printUsage(); }
+#sub VERSION_MESSAGE { printUsage(); }
+
+printUsage("die") if defined $opt{h};
+printUsage("die") if defined $opt{a} && defined $opt{d};
+printUsage("die") if defined $opt{a} && defined $opt{l};
+printUsage("die") if defined $opt{d} && defined $opt{l};
+printUsage("die") if defined $opt{h} && defined $opt{a};
+printUsage("die") if defined $opt{h} && defined $opt{d};
+printUsage("die") if defined $opt{h} && defined $opt{l};
+printUsage("die") if defined $opt{m} && defined $opt{a};
+printUsage("die") if defined $opt{m} && defined $opt{l};
+printUsage("die") if defined $opt{m} && defined $opt{d};
+printUsage("die") if defined $opt{m} && defined $opt{x};
+printUsage("die") if defined $opt{x} && defined $opt{a};
+printUsage("die") if defined $opt{x} && defined $opt{d};
+printUsage("die") if defined $opt{x} && defined $opt{l};
+
+if ( defined $opt{g} ) {
+	if ( $configuredGroups{$opt{g}} ) {
+		die "Group $opt{g} already exists!\n";
+	} 
+	if ( $reservedWords{$opt{g}} ) {
+		die "The word \'$opt{g}\' is reserved, cannot create connection with this name!\n";
+	}
+	addGroup($opt{g},@ARGV);
+}
+
+if ( defined $opt{s} ) {
+	$conn_name = $opt{s};
+	if ( $conn_name eq "all" ) {
+		foreach (sort keys %configuredConnections) {
+			if ( defined $opt{e} ) {
+				show($_, "showpwd");
+				print "\n";
+			} else { 
+				show($_, "dontshowpwd");
+				print "\n";
+			}
+		}
+	}
+	if ( ( ! $configuredConnections{$conn_name} ) && ( ! $configuredGroups{$conn_name} ) ) { 
+		die "Connection / Group \'$conn_name\' doesn't exist!\n";
+	} else {
+		if ( defined $opt{e} ) {
+			show($opt{s}, "showpwd");
+		} else { 
+			show($opt{s}, "dontshowpwd");
+		}
+	}
+}
+
+if ( defined $opt{l} ) {
+	if ( $opt{l} eq 's' ) {
+		printConnections();
+	} elsif ( $opt{l} eq 'p' ) {
+		printPreferences();
+	} elsif ( $opt{l} eq 'g' ) {
+		printGroups();
+	}
+}
+
+if ( defined $opt{x} ) {
+	$conn_name = $opt{x};
+	if ( ( ! $configuredConnections{$conn_name} ) && ( ! $configuredGroups{$conn_name}) )  { 
+		die "No connection or group named \'$conn_name\' exists!\n";
+	} else { 
+		delConnection($conn_name, "withtext");
+	}
+}
+
+if ( defined $opt{a} ) {
+	if ( defined $opt{n}) {
+		$conn_name = $opt{n};
+	} else {
+		die "Parameter -n <connection name> is mandatory for -a. Run '$filename -h' for more information.\n";
+	}
+	if ( defined $opt{t} ) {
+		$type = $opt{t};
+		if ( undef $available_conn_types{$type} ) { 
+			print STDERR "Connection type $type is not available, available connections are:";
+			printUsage("die");
+		}
+		if ( ( $opt{t} ne 'ssh' ) && ( defined $opt{o} )) {
+			die "Option -o cannot be used for type $opt{t}, it is only available for ssh\n";
+		}
+	} else {
+		my @avail_conn = get_avail_conn();
+		die "Parameter -t <type> is mandatory for -a. Run '$filename -h' for more information (Available types are '@avail_conn').\n";
+	}
+	if ( undef $opt{P} ) {
+		$port = $opt{P};
+	} else {
+		$port = $default_ports{$type};
+	}
+	if ( defined $opt{i} ) {
+		$ip = $opt{i};
+	} else {
+		die "Parameter -i <ip_address> is mandatory for -a. Run '$filename -h' for more information.\n";
+	}
+	if ( defined $opt{u} ) {
+		$user = $opt{u};
+	} else {
+		die "Parameter -u <user name> is mandatory for -a. Run '$filename -h' for more information.\n";
+	}
+	if ( defined $opt{k} ) { 
+		if ( ! -e $opt{k} ) {
+			die "Key Identity file $opt{k} doesn't exist!\n";
+		} else { 
+			$passwd = $opt{k};
+		}
+		die "Cannot have password and key identity file defined together!\n" if defined $opt{p};
+	}
+	if ( defined $opt{o} ) {
+		$sshoptions = "$opt{o}";
+	}
+	$passwd = $opt{p} if defined $opt{p};
+	$comment = $opt{c} if defined $opt{c};
+	$commands_after_connection = $opt{E} if defined $opt{E};
+	addConnection( $conn_name, $ip, $port, $user, $passwd, $type, $comment, "printmsg", $sshoptions, $commands_after_connection );
+}
+
+if ( ( defined $opt{m} ) || ( defined $opt{d} ) ) {
+	my $unchangestring = "___DONTCHANGEMEPLEASE___";
+	my $name_to_change;
+	my $action;
+	if ( defined $opt{m} ) { 
+		$name_to_change = $opt{m}; 
+		$action = "modify"; 
+	} elsif ( defined $opt{d} ) { 
+		$name_to_change = $opt{d}; 
+		$action = "clone"; 
+	}
+
+	if ( $opt{n} ) {
+		$conn_name = $opt{n};
+	} else { 
+		if ( $action eq "clone" ) {
+			die "Need a name for the duplicated connection!\n";
+		}
+		$conn_name = $unchangestring;
+	}
+
+	if ( $opt{t} ) {
+		$type = $opt{t};
+	} else { 
+		$type = $unchangestring;
+	}
+
+	if ( $opt{P} ) {
+		$port = $opt{P};
+	} else {
+		$port = $unchangestring;
+	}
+
+	if ( $opt{i} ) { 
+		$ip = $opt{i};
+	} else {
+		$ip = $unchangestring;
+	}
+
+	if ( $opt{u} ) {
+		$user = $opt{u};
+	} else {
+		$user = $unchangestring;
+	}
+
+	if ( $opt{p} ) {
+		$passwd = $opt{p};
+	} else {
+		$passwd = $unchangestring;
+	}
+
+	if ( $opt{k} ) {
+		if ( $opt{p} ) {
+			die "Options -k and -p cannot be used together\n";
+		} else { 
+			$passwd = $opt{k};
+		}
+	}
+
+	if ( $opt{c} ) {
+		$comment = $opt{c};
+	} else {
+		$comment = $unchangestring;
+	}
+	if ( defined $opt{o} ) {
+		$sshoptions = "$opt{o}";
+	} else {
+		$sshoptions = $unchangestring;
+	}
+
+	if ( defined $opt{E} ) {
+		$commands_after_connection = $opt{E};
+	} else {
+		$commands_after_connection = $unchangestring;
+	}
+
+	modifyConnection( $name_to_change, $conn_name, $ip, $port, $user, $passwd, $type, $comment, $unchangestring, $action, $sshoptions, $commands_after_connection);
+}
+
+if ( ( @ARGV ) && ( ! $opt{l} ) && ( ! $opt{d} ) && ( ! $opt{a} ) && ( ! $opt{m} ) && ( ! $opt{l} ) && ( ! $opt{h} ) && ( ! $opt{g} ) ) {
+	my @all_conn = ();
+	if ( @ARGV > 1 ) { 
+		my @all_conn_temp = ();
+		push (@all_conn_temp, @ARGV);
+		my $isconn = "notdefined";
+		shift (@all_conn_temp);
+
+		foreach ( @all_conn_temp ) {
+			if ( $configuredConnections{$_} ) {
+				if ( $isconn eq "notdefined") { 
+					$isconn = "true";
+				}
+				if ( $isconn eq "false") { 
+					die "Cannot have one parameter as a command and other as a connection\n";
+				}
+			} else { 
+				if ( $isconn eq "false") { 
+					die "Can only send one command\n";
+				}
+				if ( $isconn eq "notdefined") { 
+					$isconn = "false";
+				}
+				if ( $isconn eq "true") { 
+					die "Cannot have one parameter as a command and other as a connection\n";
+				}
+			}
+		}
+		push (@all_conn, @ARGV);
+		doConnect($ARGV[0], @all_conn);
+	} else { 
+		if ( $configuredConnections{$ARGV[0]} ) {
+			doConnect($ARGV[0]);
+		} else { 
+			die "Connection $ARGV[0] not defined\n";
+		}
+	}
+}
