@@ -18,7 +18,7 @@ my $details = 'Created by Andre Saunite (saunite [at] gmail.com): Free!';
 # * so on) or to be used in machines with no GUI available.
 # *
 # * Creation date: 2012/09/06
-# * Last change: 2012/11/14
+# * Last change: 2014/12/10
 # *
 # */
 
@@ -819,6 +819,7 @@ $filename [-a|-d|-x|-l|-h|-m|-s] [-n name|-i ip|-P port|-u user|-p password|
    -k <key_id_file> SSH Key Id file, this option is not supported together
                      with -p
    -c <comment>      Comment for the connection (optional)
+   -o <ssh_options>  You can add specific SSH options, like port forwarding
    -E <commands>     The commands to send to the node right after the 
                      connection is established (if more then one command,
                      then they should be separated by semicolon ';')
@@ -846,6 +847,7 @@ $filename [-a|-d|-x|-l|-h|-m|-s] [-n name|-i ip|-P port|-u user|-p password|
    -c <comment>       New comment for the connection (optional)
                       (All parameters are optional while modifying, but at 
                       least one should be specified)
+   -o <ssh_options>  You can add specific SSH options, like port forwarding
    -E <commands>      New commands to send to the node right after the 
                       connection is established (if more then one command,
                      then they should be separated by semicolon ';')
@@ -866,13 +868,14 @@ $filename [-a|-d|-x|-l|-h|-m|-s] [-n name|-i ip|-P port|-u user|-p password|
    -k <key_id_file>	  New ssh key identification file, not supported together 
                       with -p
    -c <comment>		  New comment for the connection (optional)
+   -o <ssh_options>  You can add specific SSH options, like port forwarding
    -E <commands>      New commands to send to the node right after the 
                       connection is established (if more then one command,
                      then they should be separated by semicolon ';')
          (All parameters are optional while duplicating, except <new_name>)
 
  To print saved connections or preferences
-   -lc			Print connections
+   -ls			Print connections
    -lg			Print groups
    -lp			Print preferences
 

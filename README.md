@@ -15,7 +15,7 @@
 # * so on) or to be used in machines with no GUI available.
 # *
 # * Creation date: 2012/09/06
-# * Last change: 2013/11/14
+# * Last change: 2014/12/10
 # *
 # * ----------------------------------------------------------------------------
 # *
