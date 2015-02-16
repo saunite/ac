@@ -1,3 +1,8 @@
+# Place this under /etc/bash_completion.d/ under the name "ac" 
+#
+# Developed by André Saunite (saunite@gmail.com) on 2015-02-16
+#
+
 function _ac()
 {
     local cmd="${1##*/}"
