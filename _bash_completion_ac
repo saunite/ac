@@ -1,0 +1,39 @@
+function _ac()
+{
+    local cmd="${1##*/}"
+    local word=${COMP_WORDS[COMP_CWORD]}
+    local line=${COMP_LINE}
+    local xpat
+
+    case "$cmd" in
+    ac)
+        case "$line" in
+        *-)
+            COMPREPLY=( $( compgen -W '-a -d -x -l -h -m -s' -- $word ) )
+			return 0;
+            ;;
+        *-P*)
+            COMPREPLY=( $( compgen -W '21 22 23' -- $word ) )
+			return 0;
+            ;;
+        *-a*)
+            COMPREPLY=( $( compgen -W '' -- $word ) )
+			return 0;
+            ;;
+        *-t*)
+            COMPREPLY=( $( compgen -W 'ftp sftp ssh telnet' -- $word ) )
+			return 0;
+            ;;
+        *)
+    		COMPREPLY=( $( compgen -W "$(ac -ls | tail -n+2 | awk '{print $1}' )" -- $word ) )
+			return 0;
+            ;;
+        esac
+        ;;
+    esac
+
+	COMPREPLY=( $( compgen -W "$(ac -ls | tail -n+2 | awk '{print $1}' )" -- $word ) )
+	return 0;
+}
+
+complete -F _ac ac
