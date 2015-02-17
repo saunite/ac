@@ -55,4 +55,8 @@
 # *  be copied as /etc/bash_completion.d/ac (or you can just source it when 
 # *  using ac) 
 # * 
+# *  The bash completion will allow you to use tab to complete your saved 
+# *  connections, also will try to fill the -P option (Port number) and the
+# *  -t option (type of connection) and to show all available flags / options
+# * 
 # * ----------------------------------------------------------------------------
