@@ -1,6 +1,7 @@
 # Place this under /etc/bash_completion.d/ under the name "ac" 
 #
 # Developed by André Saunite (saunite@gmail.com) on 2015-02-16
+# Last change 2015-02-17
 #
 
 function _ac()
@@ -18,7 +19,7 @@ function _ac()
 	fi
 
 	case "$prev" in
-		-@(a|d|x|l|h|m|s)*-)
+		-@(a|d|x|l|h|m|s|g)*-)
             COMPREPLY=( $( compgen -W '-n -i -P -u -p -k -c -t -o -E' -- $cur ) )
 			return 0;
             ;;
@@ -35,16 +36,16 @@ function _ac()
 			return 0;
             ;;
         -)
-            COMPREPLY=( $( compgen -W '-a -d -x -l -h -m -s' -- $cur ) )
+            COMPREPLY=( $( compgen -W '-a -d -x -l -h -m -s -g' -- $cur ) )
 			return 0;
             ;;
         *)
-    		COMPREPLY=( $( compgen -W "$(ac -ls | tail -n+2 | awk '{print $1}' )" -- $cur ) )
+    		COMPREPLY=( $( compgen -W "$(ac -ls | tail -n+2 | awk '{print $1}' ) $(ac -lg | tail -n+2 | awk '{print $1}')" -- $cur ) )
 			return 0;
             ;;
     esac
 
-	COMPREPLY=( $( compgen -W "$(ac -ls | tail -n+2 | awk '{print $1}' )" -- $cur ) )
+    COMPREPLY=( $( compgen -W "$(ac -ls | tail -n+2 | awk '{print $1}' ) $(ac -lg | tail -n+2 | awk '{print $1}')" -- $cur ) )
 	return 0;
 }
 

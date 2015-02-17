@@ -1,7 +1,4 @@
 #!/usr/bin/perl
-
-my $details = 'Created by Andre Saunite (saunite [at] gmail.com): Free!';
-
 #/*
 # * ----------------------------------------------------------------------------
 # * "THE BEER-WARE LICENSE" (Revision 42):
@@ -18,7 +15,7 @@ my $details = 'Created by Andre Saunite (saunite [at] gmail.com): Free!';
 # * so on) or to be used in machines with no GUI available.
 # *
 # * Creation date: 2012/09/06
-# * Last change: 2014/12/10
+# * Last change: 2015/02/17
 # *
 # */
 
@@ -30,35 +27,47 @@ use Crypt::ECB;
 use Term::ReadKey;
 use Getopt::Std;
 
-# Change those to change your configuration location
+# This is important, it is used as part of the key to encrypt / un-encrypt 
+# your connections, so change it before saving (or leave the default, it is ok)
+# By the way, it cannot be greater than 56 chars 
+my $details = 'Created by Andre Saunite (saunite [at] gmail.com): Free!';
+
+# This is just for version control, kinda useless really
+my $version = "2015-02-17";
+
+# Change those to modify your configuration location
 my $configDir = $ENV{"HOME"} . "/.ac" ; # Configuration directory
 my $connections = $configDir . "/" . "connections"; # Connections file
 my $groupFile = $configDir . "/" . "groups"; # Group File
+my $preferencesFile = $configDir . "/" . "preferences"; # Preferences file
 
-# Global Variable declaration
-my $conn_name;
-my $ip;
-my $port;
-my $user;
-my $passwd = "-";
+# Global Variable declarations (Change any of those to alter the default value when creating a connection)
 my $sshoptions = "-X -C -o PreferredAuthentications=password,keyboard-interactive";
-my $type;
-my $comment;
-my $commands_after_connection;
-
 my $telnet_options = "";
 my $sftp_options = "";
 my $ftp_options = "";
 my $ssh_key = "";
 my $timeout = 30;
+my $commands_after_connection;
+
+# Change those if you have a prompt that is not considered here
 my $command_prompt = '[#%\$>]|\:\/\s*$|TERM\ \=\ \([a-z]*\)';
 my $passwd_prompt = '([p|P]ass|[p|P]ass[w|W]or[d|t]|[c|C]ontrase.a|Enter passphrase for key )\s*:\s*$';
 my $user_prompt = '([l|L]ogin|[u|U]suario|[u|U]ser-?[n|N]ame|[u|U]ser)\s*:\s*$|[n|N]ame\s*(.*:.*):\s*';
+
+# Change this if you want to change language or add some swear words
 my $conn_tmout = 'Connection timed out';
 my $ssh_auth = 'Are you sure you want to continue connecting (yes/no)?\s*';
-my $ct = new Expect;
 
-my $version = "2013-11-14";
+# Don't change those
+my $ct = new Expect;
+my $conn_name;
+my $ip;
+my $port;
+my $user;
+my $passwd = "-";
+my $type;
+my $comment;
 
 my %opt = ();
 
@@ -69,9 +78,10 @@ sub HELP_MESSAGE {
 }
 
 sub VERSION_MESSAGE {
-	print "ac version ${version}\n\n";
+	print "ac version ${version}\n";
 }
 
+# You can add a new connection type
 sub getConnTypes {
 	my %available_conn_types = (
 		ssh => 1,
@@ -84,6 +94,7 @@ sub getConnTypes {
 
 my %available_conn_types = getConnTypes();
 
+# Is there any more desired options that I am missing?
 my %options = (
 	add => 1,
 	del => 1,
@@ -91,6 +102,7 @@ my %options = (
 	print => 1,
 	);
 
+# If a new connection is added, a new default port for it can be defined
 my %default_ports = (
 	ssh => 22,
 	sftp => 22,
@@ -98,22 +110,29 @@ my %default_ports = (
 	ftp => 21,
 );
 
+# I don't remember why I created this
 my %reservedWords = (
 	all => 1,
 );
 
+# This one is just for print purposes, add a new column if a new one is added to the print
 my @connectionColumns = ("NAME", "IP / HOSTNAME", "PORT", "USER", "PWD", "TYPE", "COMMENT", "SSH_OPTIONS");
+
+# Don't touch this
 my %configuredConnections = ();
 my %configuredGroups = ();
 
 # Configurable Options in preferences file, the below are the defaults in case no 
 #  option is specified in the configuration files
 my %preferences = ();
-$preferences{scapeCharSeq} = "__RUN__LIKE__HELL__";
+
+# Those are default values, it can be changed here or in the preferences file
+$preferences{scapeCharSeq} = "__RUN__LIKE__HELL__"; #This one should probably be easier
 $preferences{generateLog} = "yes";
 $preferences{logDir} = "${configDir}/logs/";
 $preferences{accept_ssh_auth} = "yes";
 
+# I told you the details variable was important! 
 my $enkey = $details;
 if ( length $enkey >= 57 ) {
 	die "Cannot have a key larger then 56 chars\n";
@@ -121,11 +140,15 @@ if ( length $enkey >= 57 ) {
 my $cifra = Crypt::ECB->new($enkey, 'Blowfish' );
 $cifra->padding(PADDING_AUTO);
 
+# If config dir doesn't exist it will try to create it, if it can't then you can't use the script
+# it can usually happen if the config dir is defined to a directory where the current user has no 
+# writing permissions
 if ( ! -e $configDir ) {
     print "Config directory doesn't exist, creating in $configDir \n";
     mkdir "$configDir" or die "ABORTING: Cannot create directory $configDir !!!\n";
 }
 
+# Am I not good with names? Inception! I mean, a connection inside a connection inside a connection! I am so funny!
 sub inception {
 	my $conn_command;
 	my @all_conn = @_;
@@ -145,7 +168,6 @@ sub inception {
 		shift (@all_conn);
 	}
 
-	my $sshoptions = "-o PreferredAuthentications=password,keyboard-interactive";
 	$cifra->start('decrypt_hex') || die $cifra->errstring;
 	$passwd = $cifra->decrypt_hex($passwd);
 
@@ -199,6 +221,8 @@ sub doConnect {
 	my @all_conn = @_;
 
 	if ( @all_conn > 1 ) { shift (@all_conn); }
+
+	#print STDERR "CONFIGURED CONN: $configuredConnections{$all_conn[0]}\n$all_conn[0]\n"; 
 
 	($ip, $port, $user, $passwd, $type, $comment, $sshoptions, $commands_after_connection) = split (/ /, $configuredConnections{$all_conn[0]});
 
@@ -327,7 +351,6 @@ sub loadConnectionFile {
 }
 
 sub createPreferencesFile {
-	my $preferencesFile = $configDir . "/" . "preferences";
 	my $key;
 	open (PREFERENCES, ">$preferencesFile") || die "ABORTING: Cannot open preferences file $preferencesFile !!!\n";
 	foreach $key (sort keys %preferences) {
@@ -337,7 +360,6 @@ sub createPreferencesFile {
 }
 
 sub loadPreferencesFile {
-	my $preferencesFile = $configDir . "/" . "preferences";
 	if ( ! -e $preferencesFile ) {
 		print "Preferences file $preferencesFile not found, trying to create one\n";
 		createPreferencesFile();
@@ -364,12 +386,11 @@ sub loadPreferencesFile {
 }
 
 sub printPreferences {
-	my $preferencesFile = $configDir . "/" . "preferences";
-	print "Preferences file: $preferencesFile\n\n";
+	print "Preferences file: $preferencesFile\n";
 	print "Defined parameters:\n";
 	my $key;
 	foreach $key (sort keys %preferences ) {
-		print "$key: $preferences{$key}\n";
+		print "\t$key: $preferences{$key}\n";
 	}
 }
 
@@ -450,6 +471,14 @@ sub modifyConnection {
 	my $unchangestring = $_[8];
 	my $mc_sshoptions = $_[10];
 	my $mc_commands_after_conn = $_[11];
+
+	if ( $name_to_change ) { 
+		foreach (sort keys %configuredGroups) {
+			if ( $configuredGroups{$_} =~ m/$mc_name/ ) {
+				die "Connection belongs to group $_, cannot rename\n";
+			}
+		}
+	}
 
 	if ( ( $action eq "clone") && ( $name_to_change eq $unchangestring ) ) { 
 		die "Need a name for the duplicated connection\n";
@@ -787,13 +816,13 @@ sub printUsage {
   my @avail_conn = get_avail_conn();
   my $filename = basename($0);
 	my $usage="Usage: 
-$filename [-a|-d|-x|-l|-h|-m|-s] [-n name|-i ip|-P port|-u user|-p password|
+$filename [-a|-d|-x|-l|-h|-m|-s|-g] [-n name|-i ip|-P port|-u user|-p password|
     -k ssh key_identity_file|-c comment|-t type|-o ssh_options|
     -E commands_after_connection] [name] 
 
- To connect to a saved connection
+ To connect to a saved connection or group
   $filename <name> [<name_01>...<name_N>|<command>]	
-    name [<name_01>...<name_N]  Where 'name' and 'name_XX' are the names of 
+    name [<name_01>...<name_N>] Where 'name' and 'name_XX' are the names of 
                                 saved connections (If you specify more than a 
                                 name, it will connect to one node, then from 
                                 that node connect to the other, and so on, 
@@ -824,12 +853,17 @@ $filename [-a|-d|-x|-l|-h|-m|-s] [-n name|-i ip|-P port|-u user|-p password|
                      connection is established (if more then one command,
                      then they should be separated by semicolon ';')
 
- To delete a saved connection
+ To add a group of connections
+  $filename -g <group name> name [<name_01>...<name_N>]
+    name [<name_01>...<name_N>] Where 'name' and 'name_XX' are the names of 
+                                saved connections to add to the group
+
+ To delete a saved connection or group
   $filename -x <name> Name of the connection or group to be deleted
                      (In case the connection belong to a group, it cannot 
                      be deleted)
 
- To modify a saved connection
+ To modify a saved connection (currently groups are not supported)
   $filename -m <name> [-n <new name>] [-i <ip_address>] [-u <user>] [-t <type>]
    [-P <port_number>] [-p <password>] [-k <ssh_key_id_file>] [-c <comment>]
 
@@ -852,7 +886,7 @@ $filename [-a|-d|-x|-l|-h|-m|-s] [-n name|-i ip|-P port|-u user|-p password|
                       connection is established (if more then one command,
                      then they should be separated by semicolon ';')
 
- To duplicate / clone a saved connection
+ To duplicate / clone a saved connection (currently groups are not supported)
   $filename -d <name> -n <new name> [-i <ip_address>] [-u <user>] [-t <type>] 
    [-P <port_number>] [-p <password>] [-k <ssh_key_id_file>] [-c <comment>]
 
@@ -875,11 +909,11 @@ $filename [-a|-d|-x|-l|-h|-m|-s] [-n name|-i ip|-P port|-u user|-p password|
          (All parameters are optional while duplicating, except <new_name>)
 
  To print saved connections or preferences
-   -ls			Print connections
-   -lg			Print groups
+   -ls			Print saved connections
+   -lg			Print saved groups
    -lp			Print preferences
 
- To show details from a saved connection
+ To show details from a saved connection or group
   $filename -s <name> [-e]  Where 'name' is the name of a saved connection
                        (if -e is used, the password will be show)
 
@@ -1100,41 +1134,53 @@ if ( ( defined $opt{m} ) || ( defined $opt{d} ) ) {
 	modifyConnection( $name_to_change, $conn_name, $ip, $port, $user, $passwd, $type, $comment, $unchangestring, $action, $sshoptions, $commands_after_connection);
 }
 
-if ( ( @ARGV ) && ( ! $opt{l} ) && ( ! $opt{d} ) && ( ! $opt{a} ) && ( ! $opt{m} ) && ( ! $opt{l} ) && ( ! $opt{h} ) && ( ! $opt{g} ) ) {
-	my @all_conn = ();
-	if ( @ARGV > 1 ) { 
-		my @all_conn_temp = ();
-		push (@all_conn_temp, @ARGV);
-		my $isconn = "notdefined";
-		shift (@all_conn_temp);
+sub checkConnections {
+	my @all_conn_temp = ();
+	push (@all_conn_temp, @_);
+	my $isconn = "notdefined";
+	shift (@all_conn_temp);
 
-		foreach ( @all_conn_temp ) {
-			if ( $configuredConnections{$_} ) {
-				if ( $isconn eq "notdefined") { 
-					$isconn = "true";
-				}
-				if ( $isconn eq "false") { 
-					die "Cannot have one parameter as a command and other as a connection\n";
-				}
-			} else { 
-				if ( $isconn eq "false") { 
-					die "Can only send one command\n";
-				}
-				if ( $isconn eq "notdefined") { 
-					$isconn = "false";
-				}
-				if ( $isconn eq "true") { 
-					die "Cannot have one parameter as a command and other as a connection\n";
-				}
+	foreach ( @all_conn_temp ) {
+		if ( $configuredConnections{$_} ) {
+			if ( $isconn eq "notdefined") { 
+				$isconn = "true";
+			}
+			if ( $isconn eq "false") { 
+				die "Cannot have one parameter as a command and other as a connection\n";
+			}
+		} else { 
+			if ( $isconn eq "false") { 
+				die "Can only send one command\n";
+			}
+			if ( $isconn eq "notdefined") { 
+				$isconn = "false";
+			}
+			if ( $isconn eq "true") { 
+				die "Cannot have one parameter as a command and other as a connection\n";
 			}
 		}
+	}
+	return 0;
+}
+
+if ( ( @ARGV ) && ( ! $opt{l} ) && ( ! $opt{d} ) && ( ! $opt{a} ) && ( ! $opt{m} ) && ( ! $opt{l} ) && ( ! $opt{h} ) && ( ! $opt{g} ) ) {
+	my @all_conn = ();
+	if ( @ARGV > 1 ) {
+		checkConnections(@ARGV);
 		push (@all_conn, @ARGV);
 		doConnect($ARGV[0], @all_conn);
 	} else { 
 		if ( $configuredConnections{$ARGV[0]} ) {
 			doConnect($ARGV[0]);
 		} else { 
-			die "Connection $ARGV[0] not defined\n";
+			if ( $configuredGroups{$ARGV[0]} ) {
+				#print "$configuredGroups{$ARGV[0]}\n";
+				#push (@all_conn, $configuredGroups{$ARGV[0]});
+				@all_conn = split ' ', $configuredGroups{$ARGV[0]};
+				doConnect($ARGV[0], @all_conn);
+			} else { 
+				die "Connection or Group $ARGV[0] not defined\n";
+			}
 		}
 	}
 }
