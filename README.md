@@ -48,3 +48,11 @@
 # * install IO::Stty
 # * 
 # * ----------------------------------------------------------------------------
+# * 
+# *  BASH COMPLETION
+# * 
+# *  File _bash_completion_ac contains the script for bash completion, it should
+# *  be copied as /etc/bash_completion.d/ac (or you can just source it when 
+# *  using ac) 
+# * 
+# * ----------------------------------------------------------------------------
