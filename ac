@@ -172,7 +172,14 @@ sub inception {
 	$passwd = $cifra->decrypt_hex($passwd);
 
 	if ( $type eq 'ssh' ) {
-		$conn_command = "$type -p $port $sshoptions -l $user $ip"; 
+		$conn_command = "$type";
+		if ( $port != $default_ports{$type} ) {
+			$conn_command .= " -p " . $port;
+		}
+		if ( $user ne "-" ) {
+			$conn_command .= " -l " . $user;
+		}
+		$conn_command .= " " . $ip;
 	} elsif ( $type eq 'telnet' ) {
 		$conn_command = "$type $telnet_options -l $user $ip $port"; 
 	} elsif ( $type eq 'sftp' ) {
@@ -222,8 +229,6 @@ sub doConnect {
 
 	if ( @all_conn > 1 ) { shift (@all_conn); }
 
-	#print STDERR "CONFIGURED CONN: $configuredConnections{$all_conn[0]}\n$all_conn[0]\n"; 
-
 	($ip, $port, $user, $passwd, $type, $comment, $sshoptions, $commands_after_connection) = split (/ /, $configuredConnections{$all_conn[0]});
 
 	$sshoptions =~ s/_SpAcE_/ /g if defined $sshoptions;
@@ -254,12 +259,21 @@ sub doConnect {
 
 	my $conn_command; 
 	if ( $type eq 'ssh' ) {
+		$conn_command = "$type";
+		if ( $port != $default_ports{$type} ) {
+			$conn_command .= " -p " . $port;
+		}
+		if ( $user ne "-" ) {
+			$conn_command .= " -l " . $user;
+		}
+
 		if ( $disconnect eq "true" ) {
-			$conn_command = "$type -p $port $sshoptions -l $user $ip \"@all_commands_after_conn\""; 
+			$conn_command .= " $ip \"@all_commands_after_conn\""; 
 			@all_commands_after_conn = ();
 		} else {
-			$conn_command = "$type -p $port $sshoptions -l $user $ip"; 
+			$conn_command .= " $sshoptions $ip"; 
 		}
+
 	} elsif ( $type eq 'telnet' ) {
 		$conn_command = "$type $telnet_options -l $user $ip $port"; 
 	} elsif ( $type eq 'sftp' ) {
@@ -458,8 +472,6 @@ sub printConnections {
 sub modifyConnection {
 	my %available_conn_types = getConnTypes();
 
-	my $action = $_[9]; 
-
 	my $mc_name = $_[0];
 	my $name_to_change = $_[1];
 	my $mc_ip = $_[2];
@@ -469,10 +481,11 @@ sub modifyConnection {
 	my $mc_type = $_[6];
 	my $mc_comment = $_[7]; 
 	my $unchangestring = $_[8];
+	my $action = $_[9]; 
 	my $mc_sshoptions = $_[10];
 	my $mc_commands_after_conn = $_[11];
 
-	if ( $name_to_change ) { 
+	if ( $name_to_change ne "___DONTCHANGEMEPLEASE___" ) { 
 		foreach (sort keys %configuredGroups) {
 			if ( $configuredGroups{$_} =~ m/$mc_name/ ) {
 				die "Connection belongs to group $_, cannot rename\n";
@@ -872,7 +885,7 @@ $filename [-a|-d|-x|-l|-h|-m|-s|-g] [-n name|-i ip|-P port|-u user|-p password|
    -i <ip_address>    New IP address or hostname of the node
    -t <type>          New connection type, supported ones are
                       '@avail_conn'
-   -u <user>          New user on the remote host
+   -u <user>          New user on the remote host (- for empty)
    -P <port_number>   New port number to connect to
    -p <password>      New password for the user, if entered a dash (-) then 
                       will be prompted (his option is not supported with -k)
@@ -895,7 +908,7 @@ $filename [-a|-d|-x|-l|-h|-m|-s|-g] [-n name|-i ip|-P port|-u user|-p password|
    -i <ip_address>    New IP address or hostname of the node
    -t <type>          New connection type, supported ones are 
                       '@avail_conn'
-   -u <user>          New user on the remote host
+   -u <user>          New user on the remote host (- for empty)
    -P <port_number>   New port number to connect to
    -p <password>      New password for the user, if entered a dash (-) then 
                       will be prompted (this option is not supported with -k)
