@@ -1,7 +1,7 @@
-** ac: Autoconnector **
+**ac: Autoconnector**
 ================
 
-** "THE BEER-WARE LICENSE" (Revision 42): **
+**"THE BEER-WARE LICENSE" (Revision 42):**
 <saunite@gmail.com> wrote this file. As long as you retain this notice you
 can do whatever you want with this stuff. If we meet some day, and you think
 this stuff is worth it, you can buy a beer in return to André Saunite
@@ -13,10 +13,10 @@ This is a Terminal connection manager (no GUI), intended to be used with
 your favorite Terminal application (Konsole, Gnome-Terminal, yakuake, and 
 so on) or to be used in machines with no GUI available.
 
-* Creation date: 2012/09/06 *
-* Last change: 2015/02/18 *
+* Creation date: 2012/09/06
+* Last change: 2015/02/18
 
-** Installation Instruction **
+**Installation Instruction**
 
 For ac to run correctly, some perl modules need to be installed, in Debian
 you can just install those packages:
@@ -44,7 +44,7 @@ Run the installation of the needed modules:
 	install Crypt::Blowfish
 	install IO::Stty
 
-** BASH COMPLETION **
+**BASH COMPLETION**
 
 File _bash_completion_ac contains the script for bash completion, it should
 be copied as /etc/bash_completion.d/ac (or you can just source it when 
@@ -52,4 +52,4 @@ using ac)
 
 The bash completion will allow you to use tab to complete your saved 
 connections, also will try to fill the -P option (Port number) and the
- -t option (type of connection) and to show all available flags / options
+	-t option (type of connection) and to show all available flags / options
