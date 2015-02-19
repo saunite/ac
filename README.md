@@ -8,7 +8,7 @@ can do whatever you want with this stuff. If we meet some day, and you think
 this stuff is worth it, you can buy a beer in return to André Saunite
 (Thanks to Poul-Henning Kamp <phk@FreeBSD.ORG> for this amazing license)
 
-ac -> Auto Connector (or André's Connector) :P
+> ac -> Auto Connector (or André's Connector) :P
 
 This is a Terminal connection manager (no GUI), intended to be used with 
 your favorite Terminal application (Konsole, Gnome-Terminal, yakuake, and 
