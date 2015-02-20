@@ -11,16 +11,21 @@ function _ac()
 	COMPREPLY=()
 
     cur="${COMP_WORDS[COMP_CWORD]}"
-	if [[ "$cur" == --*=* ]] ; then
+	if [[ "$cur" == -* ]] ; then
 		prev="${cur%=*}"
 		cur="${cur##*=}"
 	else 
 		prev="${COMP_WORDS[COMP_CWORD-1]}"
 	fi
+	words=$(printf "%s"  "${COMP_WORDS[@]}")
 
 	case "$prev" in
-		-@(a|d|x|l|h|m|s|g)*-)
-            COMPREPLY=( $( compgen -W '-n -i -P -u -p -k -c -t -o -E' -- $cur ) )
+        -)
+			if [[ "${words}" =~ .*-.*- ]]; then
+	       		COMPREPLY=( $( compgen -W '-n -i -P -u -p -k -c -t -o -E' -- $cur ) )
+			else
+   	        	COMPREPLY=( $( compgen -W '-a -d -x -l -h -m -s -g' -- $cur ) )
+			fi
 			return 0;
             ;;
         -P)
@@ -35,21 +40,11 @@ function _ac()
             COMPREPLY=()
 			return 0;
             ;;
-        -a)
-            COMPREPLY=( $( compgen -W ' ' -- $cur ) )
-			return 0;
-            ;;
-        -)
-            COMPREPLY=( $( compgen -W '-a -d -x -l -h -m -s -g' -- $cur ) )
-			return 0;
-            ;;
         *)
     		COMPREPLY=( $( compgen -W "$(ac -ls | tail -n+2 | awk '{print $1}' ) $(ac -lg | tail -n+2 | awk '{print $1}')" -- $cur ) )
 			return 0;
             ;;
     esac
-
-    COMPREPLY=( $( compgen -W "$(ac -ls | tail -n+2 | awk '{print $1}' ) $(ac -lg | tail -n+2 | awk '{print $1}')" -- $cur ) )
 	return 0;
 }
 
