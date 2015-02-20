@@ -1,7 +1,7 @@
 # Place this under /etc/bash_completion.d/ under the name "ac" 
 #
 # Developed by André Saunite (saunite@gmail.com) on 2015-02-16
-# Last change 2015-02-18
+# Last change 2015-02-20
 #
 
 function _ac()
@@ -31,8 +31,12 @@ function _ac()
             COMPREPLY=( $( compgen -W 'ftp sftp ssh telnet' -- $cur ) )
 			return 0;
             ;;
-        -a*!(-)*)
-            COMPREPLY=( $( compgen -W '' -- $cur ) )
+        -k)
+            COMPREPLY=()
+			return 0;
+            ;;
+        -a)
+            COMPREPLY=( $( compgen -W ' ' -- $cur ) )
 			return 0;
             ;;
         -)
@@ -49,4 +53,4 @@ function _ac()
 	return 0;
 }
 
-complete -F _ac ac
+complete -o default -F _ac ac
