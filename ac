@@ -18,9 +18,9 @@
 # * Last change: 2015/02/18
 # *
 # */
-
-use warnings;
-use strict;
+#
+#use warnings;
+#use strict;
 use Expect;
 use POSIX 'strftime';
 use Crypt::ECB;
@@ -138,7 +138,7 @@ if ( length $enkey >= 57 ) {
 	die "Cannot have a key larger then 56 chars\n";
 }
 my $cifra = Crypt::ECB->new($enkey, 'Blowfish' );
-$cifra->padding(PADDING_AUTO);
+#$cifra->padding(PADDING_AUTO);
 
 # If config dir doesn't exist it will try to create it, if it can't then you can't use the script
 # it can usually happen if the config dir is defined to a directory where the current user has no 
