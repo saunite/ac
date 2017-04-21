@@ -15,7 +15,7 @@
 # * so on) or to be used in machines with no GUI available.
 # *
 # * Creation date: 2012/09/06
-# * Last change: 2015/02/18
+# * Last change: 2017/04/21
 # *
 # */
 #
@@ -33,7 +33,7 @@ use Getopt::Std;
 my $details = 'Created by Andre Saunite (saunite [at] gmail.com): Free!';
 
 # This is just for version control, kinda useless really
-my $version = "2015-02-17";
+my $version = "2017-04-21";
 
 # Change those to modify your configuration location
 my $configDir = $ENV{"HOME"} . "/.ac" ; # Configuration directory
@@ -148,8 +148,7 @@ if ( ! -e $configDir ) {
     mkdir "$configDir" or die "ABORTING: Cannot create directory $configDir !!!\n";
 }
 
-# Am I not good with names? Inception! I mean, a connection inside a connection inside a connection! I am so funny!
-sub inception {
+sub get_conn_command {
 	my $conn_command;
 	my @all_conn = @_;
 	($ip, $port, $user, $passwd, $type, $comment, $sshoptions, $commands_after_connection) = split (/ /, $configuredConnections{$all_conn[0]});
@@ -174,10 +173,58 @@ sub inception {
 	if ( $type eq 'ssh' ) {
 		$conn_command = "$type";
 		if ( $port != $default_ports{$type} ) {
-			$conn_command .= " -p " . $port;
+			$conn_command .= " -p " . $port . " " . $sshoptions;
 		}
 		if ( $user ne "-" ) {
-			$conn_command .= " -l " . $user;
+			$conn_command .= " -l " . $user . " " . $sshoptions;
+		}
+		$conn_command .= " " . $ip;
+	} elsif ( $type eq 'telnet' ) {
+		$conn_command = "$type $telnet_options -l $user $ip $port"; 
+	} elsif ( $type eq 'sftp' ) {
+		$conn_command = "$type $sftp_options -P $port $user\@$ip"; 
+	} elsif ( $type eq 'ftp' ) {
+		$conn_command = "$type $ftp_options $ip $port"; 
+	}
+
+	return $conn_command;
+
+}
+
+# Am I not good with names? Inception! I mean, a connection inside a connection inside a connection! I am so funny!
+sub inception {
+	my $conn_command;
+	my @all_conn = @_;
+
+	print "\nALL CONN DO CONNECT: ";
+	print join("\n", @all_conn),"\n";
+
+	($ip, $port, $user, $passwd, $type, $comment, $sshoptions, $commands_after_connection) = split (/ /, $configuredConnections{$all_conn[0]});
+
+	$sshoptions =~ s/_SpAcE_/ /g if defined $sshoptions;
+	$sshoptions =~ s/_ViRgUlA_/,/g if defined $sshoptions;
+	$commands_after_connection =~ s/_SpAcE_/ /g if defined $commands_after_connection;
+	$commands_after_connection =~ s/_ViRgUlA_/,/g if defined $commands_after_connection;
+
+	my @all_commands_after_conn = ();
+	if ( $commands_after_connection ) {
+		@all_commands_after_conn = split (/;/, $commands_after_connection);
+	}
+
+	if ( @all_conn ) { 
+		shift (@all_conn);
+	}
+
+	$cifra->start('decrypt_hex') || die $cifra->errstring;
+	$passwd = $cifra->decrypt_hex($passwd);
+
+	if ( $type eq 'ssh' ) {
+		$conn_command = "$type";
+		if ( $port != $default_ports{$type} ) {
+			$conn_command .= " -p " . $port . " " . $sshoptions;
+		}
+		if ( $user ne "-" ) {
+			$conn_command .= " -l " . $user . " " . $sshoptions;
 		}
 		$conn_command .= " " . $ip;
 	} elsif ( $type eq 'telnet' ) {
@@ -189,31 +236,45 @@ sub inception {
 	}
 
 	$ct -> send ( "$conn_command\n" );
+	$ct -> expect ( $timeout, 
+		[ $passwd_prompt, sub {
+			$ct -> send ( "$passwd\n" );
+		} ],
+		[ timeout => sub { 
+			die "Connection timeout out!\n";
+		} ],
+	);
 
 	$ct -> expect ( $timeout, 
 		[ $ssh_auth, sub {
-			$ct -> send ( "$preferences{accept_ssh_auth}\n" );
+			my $self = shift;
+			$self -> send ( "$preferences{accept_ssh_auth}\n" );
 			exp_continue;
 		} ],
 		[ $user_prompt, sub {
-			$ct -> send ( "$user\n" );
+			my $self = shift;
+			$self -> send ( "$user\n" );
 			exp_continue;
 		} ],
 		[ $passwd_prompt, sub {
-			$ct -> send ( "$passwd\n" );
+			print "Matching PWD (inception)\n";
+			my $self = shift;
+			$self -> send ( "$passwd\n" );
 			exp_continue;
 		} ],
 		[ $command_prompt, sub {
+			print "Matching command prompt (inception)\n";
+			my $self = shift;
 			if ( @all_conn ) {
 				inception (@all_conn);
 			} else { 
 				if ( @all_commands_after_conn ) {
 					foreach (@all_commands_after_conn) {
-						$ct -> send ( "$_\n" );
+						$self -> send ( "$_\n" );
 					}
 				}
-				$ct->interact( \*STDIN, $preferences{scapeCharSeq} );
-				$ct->soft_close();
+				$self->interact( \*STDIN, $preferences{scapeCharSeq} );
+				$self->soft_close();
 			}
 		} ],
 		[ timeout => sub { 
@@ -227,7 +288,8 @@ sub doConnect {
 
 	my @all_conn = @_;
 
-	if ( @all_conn > 1 ) { shift (@all_conn); }
+	print "\nALL CONN DO CONNECT: ";
+	print join("\n", @all_conn),"\n";
 
 	($ip, $port, $user, $passwd, $type, $comment, $sshoptions, $commands_after_connection) = split (/ /, $configuredConnections{$all_conn[0]});
 
@@ -261,10 +323,10 @@ sub doConnect {
 	if ( $type eq 'ssh' ) {
 		$conn_command = "$type";
 		if ( $port != $default_ports{$type} ) {
-			$conn_command .= " -p " . $port;
+			$conn_command .= " -p " . $port . " " . $sshoptions ;
 		}
 		if ( $user ne "-" ) {
-			$conn_command .= " -l " . $user;
+			$conn_command .= " -l " . $user . " " . $sshoptions;
 		}
 
 		if ( $disconnect eq "true" ) {
@@ -1181,7 +1243,8 @@ if ( ( @ARGV ) && ( ! $opt{l} ) && ( ! $opt{d} ) && ( ! $opt{a} ) && ( ! $opt{m}
 	if ( @ARGV > 1 ) {
 		checkConnections(@ARGV);
 		push (@all_conn, @ARGV);
-		doConnect($ARGV[0], @all_conn);
+		#doConnect($ARGV[0], @all_conn);
+		doConnect(@all_conn);
 	} else { 
 		if ( $configuredConnections{$ARGV[0]} ) {
 			doConnect($ARGV[0]);
@@ -1190,7 +1253,8 @@ if ( ( @ARGV ) && ( ! $opt{l} ) && ( ! $opt{d} ) && ( ! $opt{a} ) && ( ! $opt{m}
 				#print "$configuredGroups{$ARGV[0]}\n";
 				#push (@all_conn, $configuredGroups{$ARGV[0]});
 				@all_conn = split ' ', $configuredGroups{$ARGV[0]};
-				doConnect($ARGV[0], @all_conn);
+				#doConnect($ARGV[0], @all_conn);
+				doConnect(@all_conn);
 			} else { 
 				die "Connection or Group $ARGV[0] not defined\n";
 			}
