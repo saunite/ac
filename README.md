@@ -15,7 +15,7 @@ your favorite Terminal application (Konsole, Gnome-Terminal, yakuake, and
 so on) or to be used in machines with no GUI available.
 
 * Creation date: 2012/09/06
-* Last change: 2015/02/18
+* Last change: 2017/04/24
 
 **Installation Instruction**
 
@@ -48,8 +48,8 @@ Run the installation of the needed modules:
 **BASH COMPLETION**
 
 File _bash_completion_ac contains the script for bash completion, it should
-be copied as /etc/bash_completion.d/ac (or you can just source it when 
-using ac) 
+be copied as /etc/bash_completion.d/ac or /usr/share/bash-completion/completions 
+(or you can just source it when using ac) 
 
 The bash completion will allow you to use tab to complete your saved 
 connections, also will try to fill the -P option (Port number) and the
