@@ -196,9 +196,6 @@ sub inception {
 	my $conn_command;
 	my @all_conn = @_;
 
-	print "\nALL CONN DO CONNECT: ";
-	print join("\n", @all_conn),"\n";
-
 	($ip, $port, $user, $passwd, $type, $comment, $sshoptions, $commands_after_connection) = split (/ /, $configuredConnections{$all_conn[0]});
 
 	$sshoptions =~ s/_SpAcE_/ /g if defined $sshoptions;
@@ -287,9 +284,6 @@ sub doConnect {
 	my $time = strftime('%d-%m-%Y_%H:%M:%S', localtime);
 
 	my @all_conn = @_;
-
-	print "\nALL CONN DO CONNECT: ";
-	print join("\n", @all_conn),"\n";
 
 	($ip, $port, $user, $passwd, $type, $comment, $sshoptions, $commands_after_connection) = split (/ /, $configuredConnections{$all_conn[0]});
 
